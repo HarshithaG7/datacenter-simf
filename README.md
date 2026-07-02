@@ -1,77 +1,80 @@
+
 # datacenter-sim
-Scalable multi-user login load testing framework — Locust + FastAPI + Prometheus + Grafana, built to simulate millions of concurrent users.
-# Data Centre Login Load Simulation Framework
 
-> A scalable, open-source framework for simulating real-world multi-user login
-> traffic against a server — built to test how authentication systems behave
-> under realistic ramp-up, peak, and sustained concurrency conditions, from
-> hundreds to millions of users.
+**Real-World, Multi-User Data Centre Workload Simulation for Server Testing**
 
-![Python](https://img.shields.io/badge/python-3.11-blue)
-![Locust](https://img.shields.io/badge/load%20testing-locust-brightgreen)
-![FastAPI](https://img.shields.io/badge/server-fastapi-009688)
-![Docker](https://img.shields.io/badge/infra-docker-2496ED)
-![Prometheus](https://img.shields.io/badge/monitoring-prometheus-E6522C)
-![Grafana](https://img.shields.io/badge/dashboards-grafana-F46800)
-![License](https://img.shields.io/badge/license-MIT-lightgrey)
+A scalable, open-source framework for simulating realistic multi-user login traffic against a server — built to test how authentication systems behave under ramp-up, peak, sustained, and cooldown conditions, from hundreds to millions of users.
+
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![Locust](https://img.shields.io/badge/Load%20Gen-Locust-green)
+![FastAPI](https://img.shields.io/badge/Server-FastAPI-teal)
+![Docker](https://img.shields.io/badge/Infra-Docker-blue)
+![Prometheus](https://img.shields.io/badge/Metrics-Prometheus-orange)
+![Grafana](https://img.shields.io/badge/Dashboard-Grafana-red)
+![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 ---
 
 ## What this is
 
-Most server load tests send flat, constant traffic — but real production traffic
-ramps up, spikes, sustains, and cools down, often through multiple interfaces at
-once, with different user types competing for the same server resources. This
-framework reproduces that realism around a **login/authentication system**, one
-of the most concurrency-sensitive parts of any application.
+Most server load tests send flat, constant traffic — but real production traffic ramps up, spikes, sustains, and cools down, often through multiple interfaces at once, with different user types competing for the same server resources.
 
-It simulates **three interface types — web, mobile, and API — each with light
-and heavy user variants**, generating realistic session lifecycles (login →
-profile read/update → logout) and sustained machine traffic side by side. This
-creates genuine **cross-interface contention**: a heavy API client hammering
-`/api/data` while web and mobile users are simultaneously logging in and
-refreshing sessions on the same server.
+This framework reproduces that realism around a login/authentication system — one of the most concurrency-sensitive parts of any application. It simulates three interface types (web, mobile, API), each with light and heavy user variants, generating realistic session lifecycles alongside sustained machine traffic. This creates genuine cross-interface contention and exposes defects that flat-load tests miss entirely.
 
-Two time-based traffic patterns are included — a steady **normal day** baseline
-and a sudden **flash event** spike — while monitoring the target server live and
-automatically identifying the exact point where it starts to break down.
+---
+
+## Table of contents
+
+- [Architecture](#architecture)
+- [Tech stack](#tech-stack)
+- [Folder structure](#folder-structure)
+- [Team and responsibilities](#team-and-responsibilities)
+- [Prerequisites](#prerequisites)
+- [Quick start](#quick-start)
+- [Workload profiles](#workload-profiles)
+- [Simulated user types](#simulated-user-types)
+- [Server endpoints](#server-endpoints)
+- [Running tests](#running-tests)
+- [Monitoring](#monitoring)
+- [Crash logging](#crash-logging)
+- [Generating the report](#generating-the-report)
+- [Scalability](#scalability)
+- [SLA thresholds](#sla-thresholds)
+- [Contributing](#contributing)
 
 ---
 
 ## Architecture
 
 ```
-                    ┌──────────────────────┐
-                    │  workload_profiles/    │
-                    │  normal_day.yaml       │  ← steady baseline pattern
-                    │  flash_event.yaml      │  ← sudden spike pattern
-                    └────────┬───────────────┘
-                             │
-                    ┌────────▼─────────┐
-                    │   Locust          │  ← WebUser, MobileUser, APIUser
-                    │ (master + workers)│     each with light/heavy variants
-                    └────────┬─────────┘     scales horizontally
-                             │ HTTP requests
-                    ┌────────▼──────────────────────┐
-                    │  FastAPI server                │
-                    │  /login /logout /me             │
-                    │  /profile/update /api/data      │
-                    │  /health /metrics                │
-                    │   (test target)                  │
-                    └────────┬──────────────────────┘
-                             │ metrics
-          ┌──────────────────┼──────────────────┐
-          ▼                                       ▼
-   ┌─────────────┐                       ┌──────────────┐
-   │ Prometheus  │──────────────────────▶│   Grafana    │
-   │ + Node Exp. │     live dashboards   │  dashboards   │
-   └─────────────┘                       └──────────────┘
-          │
-          ▼
-   ┌─────────────────────┐
-   │ analysis/analyse.py  │ ← Pandas: bottleneck detection,
-   │ → PDF report          │   SLA verdict, charts
-   └─────────────────────┘
+┌──────────────────────────────────────┐
+│         workload_profiles/           │
+│         normal_day.yaml              │  ← steady baseline pattern
+│         flash_event.yaml             │  ← sudden spike pattern
+└─────────────────┬────────────────────┘
+                  │ read by run_test.py
+┌─────────────────▼────────────────────┐
+│         Locust (master + workers)    │  ← WebUser, MobileUser, APIUser
+│         locustfile.py + loadshapes.py│     light + heavy variants
+└─────────────────┬────────────────────┘
+                  │ HTTP requests
+┌─────────────────▼────────────────────┐
+│         FastAPI server               │
+│         /login  /logout  /me         │
+│         /profile/update  /api/data   │
+│         /health  /metrics            │
+└──────────┬───────────────────────────┘
+           │ metrics
+     ┌─────▼──────┐          ┌──────────────┐
+     │ Prometheus │─────────▶│   Grafana    │
+     │ + Node Exp │          │  dashboards  │
+     └─────┬──────┘          └──────────────┘
+           │
+     ┌─────▼──────────────┐
+     │  analysis/          │
+     │  analyse.py         │  ← Pandas: bottleneck detection,
+     │  → PDF report       │    SLA verdict, latency charts
+     └─────────────────────┘
 ```
 
 ---
@@ -80,43 +83,14 @@ automatically identifying the exact point where it starts to break down.
 
 | Layer | Tools |
 |---|---|
-| Language & config | Python 3.11, YAML, Git |
+| Language and config | Python 3.11, YAML, Git |
 | Test target server | FastAPI, Uvicorn |
 | Load generation | Locust (distributed master/worker) |
 | Infrastructure | Docker, Docker Compose |
 | Monitoring | Prometheus, Node Exporter, Grafana |
-| Analysis & reporting | Pandas, Matplotlib, Seaborn, WeasyPrint |
+| Analysis and reporting | Pandas, Matplotlib, Seaborn, WeasyPrint |
 
 All tools are 100% open source — zero licensing cost.
-
----
-
-## Server endpoints
-
-| Method | Endpoint | Used by | Purpose |
-|---|---|---|---|
-| POST | `/login` | All users | Authenticate, issue session token |
-| POST | `/logout` | Web users | End session, invalidate token |
-| GET | `/me` | Web + Mobile | Get current user profile (light read) |
-| POST | `/profile/update` | Mobile (heavy), Web (heavy) | Update profile — write-heavy, DB contention |
-| GET | `/api/data` | API users | Sustained machine traffic — resource contention |
-| GET | `/health` | Monitoring | Liveness check |
-| GET | `/metrics` | Prometheus | Exposes request count, latency histograms |
-
-## Simulated user types
-
-Three interface types are simulated, each split into weighted **light** and
-**heavy** variants to model realistic variability in user behaviour:
-
-| User type | Weight | Light variant | Heavy variant |
-|---|---|---|---|
-| **WebUser** | 50% | 80% — login → `/me` → logout, single pass | 20% — login → loop(`/me` + `/profile/update`) → logout |
-| **MobileUser** | 35% | 60% — login → `/me` once | 40% — login → poll `/me` repeatedly (background sync) |
-| **APIUser** | 15% | 30% — login once → occasional `/api/data` | 70% — login once → sustained `/api/data` calls |
-
-The heavy `APIUser` variant is the primary source of **cross-interface
-contention** — it competes for the same server resources (CPU, session store)
-as web and mobile traffic on `/login` and `/me`.
 
 ---
 
@@ -124,52 +98,105 @@ as web and mobile traffic on `/login` and `/me`.
 
 ```
 datacenter-sim/
-├── app/                     # FastAPI server (test target)
-│   ├── main.py              # /login /logout /me /profile/update /api/data /health /metrics
+├── app/                          # FastAPI server (test target)
+│   ├── main.py                   # All endpoints: /login /logout /me etc.
 │   ├── Dockerfile
 │   └── requirements.txt
-├── simulation/               # Locust load generation
-│   ├── locustfile.py         # WebUser, MobileUser, APIUser (light + heavy variants)
-│   └── loadshapes.py         # ramp-up / peak / cooldown curves
-├── infra/                     # Infrastructure
-│   ├── docker-compose.yml
-│   └── prometheus.yml
-├── monitoring/                # Grafana dashboards
+│
+├── simulation/                   # Locust load generation
+│   ├── locustfile.py             # WebUser, MobileUser, APIUser (light + heavy)
+│   ├── loadshapes.py             # Ramp-up / peak / cooldown phase curves
+│   ├── run_test.py               # Reads YAML profile, launches Locust
+│   └── requirements.txt
+│
+├── infra/                        # Infrastructure
+│   ├── docker-compose.yml        # Wires all 6 services on one Docker network
+│   └── prometheus.yml            # Scrape config for Prometheus
+│
+├── monitor/                      # Crash detection
+│   └── crash_watch.py            # Health check loop — saves logs on crash
+│
+├── monitoring/                   # Grafana dashboards
 │   └── dashboards/*.json
-├── analysis/                  # Analysis & reporting
-│   ├── analyse.py
-│   └── reports/
-├── workload_profiles/         # Test scenario configs
-│   ├── normal_day.yaml       # steady baseline (day/night cycle pattern)
-│   └── flash_event.yaml      # sudden spike (event-driven surge pattern)
-├── docs/                       # Whitepaper, diagrams, notes
+│
+├── analysis/                     # Analysis and reporting
+│   ├── analyse.py                # Bottleneck detection, SLA verdict, PDF output
+│   └── reports/.gitkeep
+│
+├── workload_profiles/            # Test scenario configs
+│   ├── normal_day.yaml           # Steady baseline (day/night cycle)
+│   └── flash_event.yaml          # Sudden spike (event-driven surge)
+│
+├── results/.gitkeep              # Locust CSV output
+├── logs/.gitkeep                 # Server and crash logs
+├── docs/                         # Project proposal, diagrams, notes
+├── .env.example                  # Environment variable template
 ├── .gitignore
+├── CONTRIBUTING.md
 └── README.md
 ```
 
 ---
 
+## Team and responsibilities
+
+| Member | Role | Owns |
+|---|---|---|
+| Member 1 | App developer | `app/main.py` — FastAPI endpoints |
+| Member 2 | App developer | `app/main.py` — auth logic, session tokens |
+| Member 3 | Simulation developer | `simulation/` — Locust users, loadshapes, run_test.py, YAML profiles |
+| Member 4 | Infrastructure | `infra/` — Docker Compose, Prometheus config, crash watchdog |
+| Member 5 | Monitoring | `monitoring/` — Grafana dashboards, Node Exporter, alerts |
+| Member 6 | Analysis and reporting | `analysis/` — analyse.py, PDF report, SLA verdict, charts |
+
+---
+
+## Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac) or Docker Engine (Linux)
+- Python 3.11+
+- Git
+- 8GB RAM minimum, 16GB recommended (six containers run simultaneously)
+
+---
+
 ## Quick start
 
-### 1. Clone and install
+### 1. Clone the repo
 
 ```bash
-git clone https://github.com/yourname/datacenter-sim.git
+git clone https://github.com/subhasreelk/datacenter-sim.git
 cd datacenter-sim
-pip install -r app/requirements.txt
 ```
 
-### 2. Start the full stack
+### 2. Set up environment variables
+
+```bash
+cp .env.example .env
+# Edit .env if needed — defaults work for local development
+```
+
+### 3. Install Python dependencies
+
+```bash
+pip install -r app/requirements.txt
+pip install -r simulation/requirements.txt
+```
+
+### 4. Start the full stack
 
 ```bash
 cd infra
 docker-compose up --build
 ```
 
-This starts: the FastAPI login server, Locust master + workers, Prometheus,
-Node Exporter, and Grafana — all on one Docker network.
+This starts all six services on one Docker network:
+- FastAPI login server
+- Locust master + workers
+- Prometheus + Node Exporter
+- Grafana
 
-### 3. Open the dashboards
+### 5. Open the dashboards
 
 | Service | URL |
 |---|---|
@@ -178,73 +205,201 @@ Node Exporter, and Grafana — all on one Docker network.
 | Prometheus | http://localhost:9090 |
 | Grafana | http://localhost:3000 |
 
-### 4. Run a test
+---
 
-Run the steady baseline first, then the spike scenario, so the analysis
-phase can compare them:
+## Workload profiles
+
+All test parameters live in a single YAML file. Changing one file changes the entire test — no code touched.
+
+```yaml
+# workload_profiles/normal_day.yaml
+
+target_users: 500
+spawn_rate: 10
+duration: 300
+
+phases:
+  ramp_up: 60        # seconds — users gradually increase
+  peak: 120          # seconds — full concurrency
+  steady_state: 90   # seconds — sustained load
+  cooldown: 30       # seconds — users wind down
+
+user_mix:
+  web: 0.50
+  mobile: 0.35
+  api: 0.15
+
+sla:
+  p95_login_ms: 500
+  error_rate: 0.01
+  cpu_percent: 80
+  memory_percent: 90
+```
+
+Two profiles are included out of the box:
+
+| Profile | Pattern | Use for |
+|---|---|---|
+| `normal_day.yaml` | Steady baseline with gradual ramp | Establishing a healthy baseline |
+| `flash_event.yaml` | Sudden spike, short sharp peak | Simulating a sale, event, or viral moment |
+
+---
+
+## Simulated user types
+
+Three interface types are simulated, each split into weighted light and heavy variants:
+
+| User type | Weight | Light variant | Heavy variant |
+|---|---|---|---|
+| WebUser | 50% | 80% — login → /me → logout (single pass) | 20% — login → loop(/me + /profile/update) → logout |
+| MobileUser | 35% | 60% — login → /me once | 40% — login → poll /me repeatedly (background sync) |
+| APIUser | 15% | 30% — login once → occasional /api/data | 70% — login once → sustained /api/data calls |
+
+The heavy APIUser is the primary source of cross-interface contention — it competes with web and mobile traffic for the same CPU and session store resources.
+
+---
+
+## Server endpoints
+
+| Method | Endpoint | Used by | Purpose |
+|---|---|---|---|
+| POST | /login | All users | Authenticate, issue session token |
+| POST | /logout | Web users | End session, invalidate token |
+| GET | /me | Web + Mobile | Get current user profile |
+| POST | /profile/update | Mobile (heavy), Web (heavy) | Update profile — write-heavy |
+| GET | /api/data | API users | Sustained machine traffic |
+| GET | /health | Monitoring | Liveness check |
+| GET | /metrics | Prometheus | Request count, latency histograms |
+
+---
+
+## Running tests
+
+Always run the baseline first, then the spike, so the analysis can compare both runs:
 
 ```bash
+# Run steady baseline
 python simulation/run_test.py --profile workload_profiles/normal_day.yaml
+
+# Run flash event spike
 python simulation/run_test.py --profile workload_profiles/flash_event.yaml
 ```
 
-### 5. Scale up workers (for higher simulated user counts)
+### Scale up workers for higher user counts
 
 ```bash
 docker-compose up --scale locust-worker=4
 ```
 
-### 6. Generate the report
+No code changes needed — just add workers.
+
+---
+
+## Monitoring
+
+While a test runs, open Grafana at http://localhost:3000 to see live panels for:
+
+- Requests per second
+- p95 login latency
+- Error rate
+- CPU utilisation
+- Memory utilisation
+- Active concurrent users
+
+Prometheus raw metrics are available at http://localhost:9090.
+
+---
+
+## Crash logging
+
+Container logs and Prometheus metrics are persisted via Docker volume mounts — they survive container crashes and restarts.
+
+Log locations on the host machine:
+
+```
+logs/fastapi/server.log     ← FastAPI app logs (full stack traces)
+logs/crash_<timestamp>.txt  ← Crash snapshot captured by watchdog
+data/prometheus/            ← Prometheus time-series data
+```
+
+Run the crash watchdog alongside your test to automatically capture a full snapshot the moment the server goes down:
+
+```bash
+python monitor/crash_watch.py &
+python simulation/run_test.py --profile workload_profiles/flash_event.yaml
+```
+
+---
+
+## Generating the report
+
+After one or both test runs complete:
 
 ```bash
 python analysis/analyse.py --run results/latest.csv
 ```
 
-Outputs a PDF report to `analysis/reports/` with latency/throughput charts,
-bottleneck detection, and an SLA pass/fail verdict.
+Output is saved to `analysis/reports/` as a PDF containing:
+
+- Latency and throughput charts over time
+- Per-phase breakdown (ramp-up, peak, steady-state, cooldown)
+- Bottleneck identification (CPU, memory, thread pool, DB connections)
+- SLA pass/fail verdict per metric
+- Crash log summary if any errors were detected
 
 ---
 
-## Scalability approach
+## Scalability
 
-"Scalable to millions of users" is achieved architecturally, not by literally
-running a million-user test on a laptop:
+Simulating millions of users is achieved architecturally, not by literally running a million-user test on a laptop:
 
-- **Config-driven scale** — `target_users` in the YAML profile controls the
-  entire test; changing one number changes scale.
-- **Locust distributed mode** — one master coordinates many worker nodes, each
-  generating load independently.
-- **Horizontal scaling** — `docker-compose up --scale locust-worker=N` adds
-  capacity without code changes.
-- **Bottleneck identification** — analysis identifies the exact ceiling (CPU,
-  DB connections, thread pool, etc.) that limits scale, and what to fix to go higher.
+- **Config-driven scale** — change `target_users` in the YAML, nothing else changes
+- **Locust distributed mode** — one master coordinates many worker nodes generating load independently
+- **Horizontal scaling** — `docker-compose up --scale locust-worker=N` adds capacity in one command
+- **Bottleneck identification** — the report identifies the exact ceiling and what to fix to go higher
+- **Cloud-ready** — the same `docker-compose up` command works on any cloud VM (AWS EC2, Azure, GCP) for true large-scale runs
 
 ---
 
-## SLA thresholds (default)
+## SLA thresholds
 
-| Metric | Threshold |
+Default thresholds (configurable per profile in the YAML):
+
+| Metric | Default threshold |
 |---|---|
 | p95 login latency | < 500ms |
 | Error rate | < 1% |
 | CPU utilisation | < 80% |
 | Memory utilisation | < 90% |
 
-Configurable per-scenario in `workload_profiles/normal_day.yaml` and
-`workload_profiles/flash_event.yaml`.
-
 ---
 
-## Team
+## Contributing
 
-| Role | Responsibility |
+### Branch naming
+
+```
+feature/<your-name>-<short-description>
+e.g. feature/member3-locustfile
+     feature/member5-grafana-dashboard
+```
+
+### Workflow
+
+1. Never push directly to `main`
+2. Create a branch for your feature or fix
+3. Open a pull request when your work is ready
+4. At least one other team member reviews before merge
+5. Use `develop` branch for integration testing — merge to `main` only when the full stack works end to end
+
+### Integration checkpoints
+
+Three points where the whole team must sync before moving on:
+
+| Checkpoint | Condition |
 |---|---|
-| App developers (2) | FastAPI login server |
-| Simulation developer (1) | Locust load generation, scaling |
-| Monitoring & analysis (3) | Docker infra, Grafana dashboards, bottleneck tuning, reporting |
+| 1 | FastAPI server is running locally and Locust can hit it successfully |
+| 2 | `docker-compose up --build` starts all six services and Prometheus is scraping metrics |
+| 3 | A full end-to-end test run produces a Locust CSV and `analyse.py` generates a PDF |
 
 ---
-
-## License
-
-MIT — free to use, modify, and distribute.
