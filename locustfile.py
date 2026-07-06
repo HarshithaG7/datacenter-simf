@@ -57,7 +57,7 @@ class WebUser(BaseAPIUser):
             return
         self.client.post(
             "/profile/update",
-            json={"bio": "web session"},
+            json={"display_name": "web session"},
             headers=self.headers,
             name="/profile/update",
         )
@@ -90,7 +90,7 @@ class MobileUser(BaseAPIUser):
             return
         self.client.post(
             "/profile/update",
-            json={"bio": "mobile session"},
+            json={"display_name": "mobile session"},
             headers=self.headers,
             name="/profile/update",
         )
